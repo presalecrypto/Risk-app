@@ -1,275 +1,209 @@
-import React, { useState } from 'react';
-import { Target, TrendingUp, TrendingDown, Check, AlertCircle } from 'lucide-react';
-import { Card, StatCard } from '../components/ui/Card';
-import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
-import { Progress } from '../components/ui/Progress';
+import React, { useMemo } from 'react';
+import { TrendingUp, TrendingDown, BarChart3, Percent, CalendarDays, CheckCircle2, XCircle, Minus } from 'lucide-react';
+import { Card } from '../components/ui/Card';
 import { useStore } from '../store/useStore';
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, formatPercent, getProfitColor, getProfitBgColor } from '../utils/formatting';
+import { getWeekRange } from '../utils/calculations';
+import { parseISO, isWithinInterval } from 'date-fns';
 
 export const Goals: React.FC = () => {
-  const { goals, updateGoals, settings, getDailyStats, getWeeklyStats, getMonthlyStats } = useStore();
-  const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState({
-    dailyGoal: goals?.dailyGoal || 0,
-    weeklyGoal: goals?.weeklyGoal || 0,
-    monthlyGoal: goals?.monthlyGoal || 0,
-    yearlyGoal: goals?.yearlyGoal || 0,
-  });
+  const { trades, settings } = useStore();
 
-  const dailyStats = getDailyStats();
-  const weeklyStats = getWeeklyStats();
-  const monthlyStats = getMonthlyStats();
+  // Calculate current week trades (Monday to Saturday)
+  const weekData = useMemo(() => {
+    const { start, end } = getWeekRange(new Date());
+    // Ensure Saturday is the end: if week ends on Sunday, set to Saturday
+    const weekEnd = new Date(end);
+    weekEnd.setDate(weekEnd.getDate() - 1); // Saturday
+    weekEnd.setHours(23, 59, 59, 999);
 
-  const dailyProgress = goals?.dailyGoal ? (dailyStats.netProfit / goals.dailyGoal) * 100 : 0;
-  const weeklyProgress = goals?.weeklyGoal ? (weeklyStats.netProfit / goals.weeklyGoal) * 100 : 0;
-  const monthlyProgress = goals?.monthlyGoal ? (monthlyStats.netProfit / goals.monthlyGoal) * 100 : 0;
+    const weekTrades = trades.filter(t => {
+      const tradeDate = parseISO(t.date);
+      return isWithinInterval(tradeDate, { start, end: weekEnd });
+    });
 
-  const handleSave = () => {
-    updateGoals(editData);
-    setIsEditing(false);
-  };
+    const wins = weekTrades.filter(t => t.result === 'win');
+    const losses = weekTrades.filter(t => t.result === 'loss');
+    const breakevens = weekTrades.filter(t => t.result === 'breakeven');
+
+    const totalProfit = wins.reduce((sum, t) => sum + t.profitLoss, 0);
+    const totalLoss = losses.reduce((sum, t) => sum + Math.abs(t.profitLoss), 0);
+    const netProfit = totalProfit - totalLoss;
+    const winRate = weekTrades.length > 0 ? (wins.length / weekTrades.length) * 100 : 0;
+    const growthRate = settings && settings.initialCapital > 0
+      ? (netProfit / settings.initialCapital) * 100
+      : 0;
+
+    // Daily breakdown
+    const dailyProfits: Record<string, number> = {};
+    weekTrades.forEach(t => {
+      dailyProfits[t.date] = (dailyProfits[t.date] || 0) + t.profitLoss;
+    });
+
+    // Days of the week (Monday to Saturday)
+    const dayNames = ['الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+
+    return {
+      weekStart: start,
+      weekEnd: weekEnd,
+      totalTrades: weekTrades.length,
+      wins: wins.length,
+      losses: losses.length,
+      breakevens: breakevens.length,
+      totalProfit,
+      totalLoss,
+      netProfit,
+      winRate,
+      growthRate,
+      dailyProfits,
+      dayNames,
+    };
+  }, [trades, settings]);
+
+  // Determine the period display
+  const weekLabel = useMemo(() => {
+    const startStr = weekData.weekStart.toLocaleDateString('ar-EG', { month: 'long', day: 'numeric' });
+    const endStr = weekData.weekEnd.toLocaleDateString('ar-EG', { month: 'long', day: 'numeric' });
+    return `${startStr} - ${endStr}`;
+  }, [weekData.weekStart, weekData.weekEnd]);
+
+  // Generate days for display (Mon-Sat)
+  const weekDays = useMemo(() => {
+    const days = [];
+    const start = new Date(weekData.weekStart);
+    for (let i = 0; i < 6; i++) {
+      const day = new Date(start);
+      day.setDate(start.getDate() + i);
+      const dateStr = day.toISOString().split('T')[0];
+      const dayName = weekData.dayNames[i];
+      const profit = weekData.dailyProfits[dateStr] || 0;
+      const isToday = dateStr === new Date().toISOString().split('T')[0];
+      days.push({ date: dateStr, dayName, profit, isToday });
+    }
+    return days;
+  }, [weekData]);
+
+  const isProfit = weekData.netProfit >= 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            أهداف التداول
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
-            تتبع تقدمك نحو أهدافك
-          </p>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          الأرباح الأسبوعية
+        </h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-2">
+          <CalendarDays className="w-4 h-4" />
+          {weekLabel} (الإثنين - السبت)
+        </p>
+      </div>
+
+      {/* Main Profit/Loss Card */}
+      <Card>
+        <div className="text-center py-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">صافي الربح/الخسارة هذا الأسبوع</p>
+          <div className={`text-5xl font-bold mb-3 ${isProfit ? 'text-success-600' : 'text-danger-600'}`}>
+            {formatCurrency(weekData.netProfit)}
+          </div>
+          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-lg font-medium ${getProfitBgColor(weekData.netProfit)}`}>
+            {isProfit ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+            {formatPercent(weekData.growthRate)} من رأس المال
+          </div>
         </div>
-        <Button
-          variant={isEditing ? 'primary' : 'secondary'}
-          onClick={() => isEditing ? handleSave() : setIsEditing(true)}
-        >
-          {isEditing ? 'حفظ' : 'تعديل الأهداف'}
-        </Button>
-      </div>
+      </Card>
 
-      {/* Goals Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Daily Goal */}
-        <Card hover>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 rounded-xl bg-primary-50 dark:bg-primary-900/20">
-              <Target className="w-6 h-6 text-primary-600" />
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card>
+          <div className="text-center p-3">
+            <div className="p-3 rounded-xl bg-primary-50 dark:bg-primary-900/20 mx-auto w-fit mb-3">
+              <BarChart3 className="w-6 h-6 text-primary-600" />
             </div>
-            <div>
-              <h3 className="font-bold text-gray-900 dark:text-white">هدف يومي</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">اليوم</p>
-            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">إجمالي الصفقات</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">{weekData.totalTrades}</p>
           </div>
-          
-          {isEditing ? (
-            <Input
-              type="number"
-              value={editData.dailyGoal}
-              onChange={(e) => setEditData({ ...editData, dailyGoal: parseFloat(e.target.value) || 0 })}
-              placeholder="0"
-            />
-          ) : (
-            <>
-              <div className="flex items-end justify-between mb-2">
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatCurrency(dailyStats.netProfit)}
-                </span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  من {formatCurrency(goals?.dailyGoal || 0)}
-                </span>
-              </div>
-              <Progress
-                value={dailyProgress}
-                color={dailyProgress >= 100 ? 'success' : dailyProgress >= 50 ? 'primary' : 'warning'}
-                showLabel
-              />
-              {dailyProgress >= 100 ? (
-                <div className="flex items-center gap-2 mt-3 text-success-600 text-sm font-medium">
-                  <Check className="w-4 h-4" />
-                  تم الإنجاز!
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 mt-3 text-gray-500 text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  متبقي {formatCurrency(Math.max(0, (goals?.dailyGoal || 0) - dailyStats.netProfit))}
-                </div>
-              )}
-            </>
-          )}
         </Card>
 
-        {/* Weekly Goal */}
-        <Card hover>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 rounded-xl bg-success-50 dark:bg-success-900/20">
-              <TrendingUp className="w-6 h-6 text-success-600" />
+        <Card>
+          <div className="text-center p-3">
+            <div className="p-3 rounded-xl bg-success-50 dark:bg-success-900/20 mx-auto w-fit mb-3">
+              <CheckCircle2 className="w-6 h-6 text-success-600" />
             </div>
-            <div>
-              <h3 className="font-bold text-gray-900 dark:text-white">هدف أسبوعي</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">هذا الأسبوع</p>
-            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">الصفقات الرابحة</p>
+            <p className="text-2xl font-bold text-success-600">{weekData.wins}</p>
           </div>
-          
-          {isEditing ? (
-            <Input
-              type="number"
-              value={editData.weeklyGoal}
-              onChange={(e) => setEditData({ ...editData, weeklyGoal: parseFloat(e.target.value) || 0 })}
-              placeholder="0"
-            />
-          ) : (
-            <>
-              <div className="flex items-end justify-between mb-2">
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatCurrency(weeklyStats.netProfit)}
-                </span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  من {formatCurrency(goals?.weeklyGoal || 0)}
-                </span>
-              </div>
-              <Progress
-                value={weeklyProgress}
-                color={weeklyProgress >= 100 ? 'success' : weeklyProgress >= 50 ? 'primary' : 'warning'}
-                showLabel
-              />
-              {weeklyProgress >= 100 ? (
-                <div className="flex items-center gap-2 mt-3 text-success-600 text-sm font-medium">
-                  <Check className="w-4 h-4" />
-                  تم الإنجاز!
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 mt-3 text-gray-500 text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  متبقي {formatCurrency(Math.max(0, (goals?.weeklyGoal || 0) - weeklyStats.netProfit))}
-                </div>
-              )}
-            </>
-          )}
         </Card>
 
-        {/* Monthly Goal */}
-        <Card hover>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 rounded-xl bg-warning-50 dark:bg-warning-900/20">
-              <Target className="w-6 h-6 text-warning-600" />
+        <Card>
+          <div className="text-center p-3">
+            <div className="p-3 rounded-xl bg-danger-50 dark:bg-danger-900/20 mx-auto w-fit mb-3">
+              <XCircle className="w-6 h-6 text-danger-600" />
             </div>
-            <div>
-              <h3 className="font-bold text-gray-900 dark:text-white">هدف شهري</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">هذا الشهر</p>
-            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">الصفقات الخاسرة</p>
+            <p className="text-2xl font-bold text-danger-600">{weekData.losses}</p>
           </div>
-          
-          {isEditing ? (
-            <Input
-              type="number"
-              value={editData.monthlyGoal}
-              onChange={(e) => setEditData({ ...editData, monthlyGoal: parseFloat(e.target.value) || 0 })}
-              placeholder="0"
-            />
-          ) : (
-            <>
-              <div className="flex items-end justify-between mb-2">
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatCurrency(monthlyStats.netProfit)}
-                </span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  من {formatCurrency(goals?.monthlyGoal || 0)}
-                </span>
-              </div>
-              <Progress
-                value={monthlyProgress}
-                color={monthlyProgress >= 100 ? 'success' : monthlyProgress >= 50 ? 'primary' : 'warning'}
-                showLabel
-              />
-              {monthlyProgress >= 100 ? (
-                <div className="flex items-center gap-2 mt-3 text-success-600 text-sm font-medium">
-                  <Check className="w-4 h-4" />
-                  تم الإنجاز!
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 mt-3 text-gray-500 text-sm">
-                  <AlertCircle className="w-4 h-4" />
-                  متبقي {formatCurrency(Math.max(0, (goals?.monthlyGoal || 0) - monthlyStats.netProfit))}
-                </div>
-              )}
-            </>
-          )}
         </Card>
 
-        {/* Yearly Goal */}
-        <Card hover>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 rounded-xl bg-danger-50 dark:bg-danger-900/20">
-              <TrendingUp className="w-6 h-6 text-danger-600" />
+        <Card>
+          <div className="text-center p-3">
+            <div className="p-3 rounded-xl bg-warning-50 dark:bg-warning-900/20 mx-auto w-fit mb-3">
+              <Percent className="w-6 h-6 text-warning-600" />
             </div>
-            <div>
-              <h3 className="font-bold text-gray-900 dark:text-white">هدف سنوي</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">هذا العام</p>
-            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">نسبة النجاح</p>
+            <p className="text-2xl font-bold text-warning-600">{weekData.winRate.toFixed(1)}%</p>
           </div>
-          
-          {isEditing ? (
-            <Input
-              type="number"
-              value={editData.yearlyGoal}
-              onChange={(e) => setEditData({ ...editData, yearlyGoal: parseFloat(e.target.value) || 0 })}
-              placeholder="0"
-            />
-          ) : (
-            <>
-              <div className="flex items-end justify-between mb-2">
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {formatCurrency(settings?.initialCapital ? 
-                    (settings.initialCapital * ((goals?.yearlyGoal || 0) / 100)) : 0)}
-                </span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {goals?.yearlyGoal || 0}%
-                </span>
-              </div>
-              <Progress
-                value={goals?.yearlyGoal || 0}
-                max={100}
-                color="primary"
-                showLabel
-              />
-            </>
-          )}
         </Card>
       </div>
 
-      {/* Summary Stats */}
+      {/* Profit & Loss Breakdown */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 rounded-lg bg-success-50 dark:bg-success-900/20">
+              <TrendingUp className="w-5 h-5 text-success-600" />
+            </div>
+            <h3 className="font-bold text-gray-900 dark:text-white">إجمالي الأرباح</h3>
+          </div>
+          <p className="text-3xl font-bold text-success-600">{formatCurrency(weekData.totalProfit)}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{weekData.wins} صفقات رابحة</p>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-3 mb-3">
+            <div className="p-2 rounded-lg bg-danger-50 dark:bg-danger-900/20">
+              <TrendingDown className="w-5 h-5 text-danger-600" />
+            </div>
+            <h3 className="font-bold text-gray-900 dark:text-white">إجمالي الخسائر</h3>
+          </div>
+          <p className="text-3xl font-bold text-danger-600">{formatCurrency(weekData.totalLoss)}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{weekData.losses} صفقات خاسرة</p>
+        </Card>
+      </div>
+
+      {/* Daily Breakdown */}
       <Card>
         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-          ملخص الأداء
+          الأداء اليومي
         </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="text-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-            <p className="text-sm text-gray-500 dark:text-gray-400">إجمالي الصفقات</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              {dailyStats.totalTrades + weeklyStats.totalTrades + monthlyStats.totalTrades}
-            </p>
-          </div>
-          <div className="text-center p-4 bg-success-50 dark:bg-success-900/20 rounded-xl">
-            <p className="text-sm text-gray-500 dark:text-gray-400">الصفقات الرابحة</p>
-            <p className="text-2xl font-bold text-success-600">
-              {dailyStats.winningTrades + weeklyStats.winningTrades + monthlyStats.winningTrades}
-            </p>
-          </div>
-          <div className="text-center p-4 bg-danger-50 dark:bg-danger-900/20 rounded-xl">
-            <p className="text-sm text-gray-500 dark:text-gray-400">الصفقات الخاسرة</p>
-            <p className="text-2xl font-bold text-danger-600">
-              {dailyStats.losingTrades + weeklyStats.losingTrades + monthlyStats.losingTrades}
-            </p>
-          </div>
-          <div className="text-center p-4 bg-primary-50 dark:bg-primary-900/20 rounded-xl">
-            <p className="text-sm text-gray-500 dark:text-gray-400">صافي الربح</p>
-            <p className="text-2xl font-bold text-primary-600">
-              {formatCurrency(dailyStats.netProfit + weeklyStats.netProfit + monthlyStats.netProfit)}
-            </p>
-          </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+          {weekDays.map((day) => (
+            <div
+              key={day.date}
+              className={`p-3 rounded-xl text-center transition-all ${
+                day.isToday
+                  ? 'ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                  : 'bg-gray-50 dark:bg-gray-700/50'
+              }`}
+            >
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{day.dayName}</p>
+              <p className={`text-lg font-bold mt-1 ${getProfitColor(day.profit)}`}>
+                {day.profit !== 0 ? formatCurrency(day.profit) : <Minus className="w-4 h-4 mx-auto text-gray-400" />}
+              </p>
+              {day.isToday && (
+                <span className="text-xs text-primary-600 font-medium">اليوم</span>
+              )}
+            </div>
+          ))}
         </div>
       </Card>
     </div>

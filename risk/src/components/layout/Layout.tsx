@@ -25,7 +25,7 @@ interface LayoutProps {
 const navItems = [
   { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard },
   { id: 'trades', label: 'الصفقات', icon: TrendingUp },
-  { id: 'goals', label: 'الأهداف', icon: Target },
+  { id: 'goals', label: 'الأرباح الأسبوعية', icon: Target },
   { id: 'analysis', label: 'تحليل الأداء', icon: BarChart3 },
   { id: 'reports', label: 'التقارير', icon: FileText },
   { id: 'risk', label: 'إدارة المخاطر', icon: Shield },

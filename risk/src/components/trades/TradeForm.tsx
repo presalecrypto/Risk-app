@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Calculator } from 'lucide-react';
+import { Save, Calculator } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Modal } from '../ui/Modal';
 import { useStore } from '../../store/useStore';
 import { calculateLotSize, calculatePips } from '../../utils/calculations';
-import type { Trade, TradeFormData, TradeResult } from '../../types';
+import type { Trade, TradeResult } from '../../types';
 
 interface TradeFormProps {
   isOpen: boolean;
@@ -23,93 +23,137 @@ export const TradeForm: React.FC<TradeFormProps> = ({
 }) => {
   const { settings, symbols, addTrade, updateTrade } = useStore();
 
-  const [formData, setFormData] = useState<TradeFormData>({
+  // All numeric fields stored as strings so user can clear them
+  const [formData, setFormData] = useState({
     symbol: 'XAUUSD',
-    type: 'buy',
-    lotSize: 0.01,
-    entryPrice: 0,
-    exitPrice: 0,
-    stopLoss: 0,
-    takeProfit: 0,
-    result: 'win',
-    profitLoss: 0,
-    pips: 0,
-    fees: 0,
+    type: 'buy' as 'buy' | 'sell',
+    lotSize: '0.01',
+    entryPrice: '',
+    exitPrice: '',
+    stopLoss: '',
+    takeProfit: '',
+    result: 'win' as 'win' | 'loss' | 'breakeven',
+    profitLoss: '',
+    pips: '',
+    fees: '',
     notes: '',
-    duration: 0,
+    duration: '',
   });
 
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [showLotCalculator, setShowLotCalculator] = useState(false);
-  const [lotCalcCapital, setLotCalcCapital] = useState(settings?.initialCapital || 1000);
-  const [lotCalcRisk, setLotCalcRisk] = useState(settings?.riskPerTrade || 1);
-  const [lotCalcSL, setLotCalcSL] = useState(0);
+  const [lotCalcCapital, setLotCalcCapital] = useState(String(settings?.initialCapital || 1000));
+  const [lotCalcRisk, setLotCalcRisk] = useState(String(settings?.riskPerTrade || 1));
+  const [lotCalcSL, setLotCalcSL] = useState('');
+
+  const toStr = (v: number | undefined | null) => (v == null || v === 0) ? '' : String(v);
 
   useEffect(() => {
     if (trade && mode === 'edit') {
       setFormData({
         symbol: trade.symbol,
         type: trade.type,
-        lotSize: trade.lotSize,
-        entryPrice: trade.entryPrice,
-        exitPrice: trade.exitPrice,
-        stopLoss: trade.stopLoss,
-        takeProfit: trade.takeProfit,
+        lotSize: toStr(trade.lotSize),
+        entryPrice: toStr(trade.entryPrice),
+        exitPrice: toStr(trade.exitPrice),
+        stopLoss: toStr(trade.stopLoss),
+        takeProfit: toStr(trade.takeProfit),
         result: trade.result,
-        profitLoss: trade.profitLoss,
-        pips: trade.pips,
-        fees: trade.fees,
+        profitLoss: toStr(trade.profitLoss),
+        pips: toStr(trade.pips),
+        fees: toStr(trade.fees),
         notes: trade.notes,
-        duration: trade.duration,
+        duration: toStr(trade.duration),
       });
     } else {
       setFormData({
         symbol: 'XAUUSD',
         type: 'buy',
-        lotSize: 0.01,
-        entryPrice: 0,
-        exitPrice: 0,
-        stopLoss: 0,
-        takeProfit: 0,
+        lotSize: '0.01',
+        entryPrice: '',
+        exitPrice: '',
+        stopLoss: '',
+        takeProfit: '',
         result: 'win',
-        profitLoss: 0,
-        pips: 0,
-        fees: 0,
+        profitLoss: '',
+        pips: '',
+        fees: '',
         notes: '',
-        duration: 0,
+        duration: '',
       });
     }
+    setErrors({});
   }, [trade, mode, isOpen]);
 
-  const updateField = (field: keyof TradeFormData, value: string | number) => {
+  const updateField = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors(prev => { const n = { ...prev }; delete n[field]; return n; });
+    }
+  };
+
+  const validate = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!formData.lotSize.trim()) e.lotSize = 'أدخل حجم اللوت';
+    else if (parseFloat(formData.lotSize) <= 0) e.lotSize = 'حجم اللوت يجب أن يكون أكبر من 0';
+    if (!formData.entryPrice.trim()) e.entryPrice = 'أدخل سعر الدخول';
+    else if (parseFloat(formData.entryPrice) <= 0) e.entryPrice = 'سعر الدخول يجب أن يكون أكبر من 0';
+    if (!formData.profitLoss.trim()) e.profitLoss = 'أدخل الربح أو الخسارة';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handleCalculatePips = () => {
-    if (formData.entryPrice && formData.exitPrice) {
-      const pips = calculatePips(formData.type, formData.entryPrice, formData.exitPrice);
-      updateField('pips', Math.round(pips * 10) / 10);
+    const entry = parseFloat(formData.entryPrice);
+    const exit = parseFloat(formData.exitPrice);
+    if (entry && exit) {
+      const pips = calculatePips(formData.type, entry, exit);
+      updateField('pips', String(Math.round(pips * 10) / 10));
     }
   };
 
   const handleCalculateLot = () => {
-    if (lotCalcCapital && lotCalcRisk && lotCalcSL) {
-      const lot = calculateLotSize(lotCalcCapital, lotCalcRisk, lotCalcSL);
-      updateField('lotSize', lot);
+    const cap = parseFloat(lotCalcCapital);
+    const risk = parseFloat(lotCalcRisk);
+    const sl = parseFloat(lotCalcSL);
+    if (cap && risk && sl) {
+      const lot = calculateLotSize(cap, risk, sl);
+      updateField('lotSize', String(lot));
       setShowLotCalculator(false);
     }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+    if (!validate()) return;
+
+    const numData = {
+      symbol: formData.symbol,
+      type: formData.type,
+      lotSize: parseFloat(formData.lotSize) || 0,
+      entryPrice: parseFloat(formData.entryPrice) || 0,
+      exitPrice: parseFloat(formData.exitPrice) || 0,
+      stopLoss: parseFloat(formData.stopLoss) || 0,
+      takeProfit: parseFloat(formData.takeProfit) || 0,
+      result: formData.result,
+      profitLoss: parseFloat(formData.profitLoss) || 0,
+      pips: parseFloat(formData.pips) || 0,
+      fees: parseFloat(formData.fees) || 0,
+      notes: formData.notes,
+      duration: parseInt(formData.duration) || 0,
+    };
+
     if (mode === 'add') {
-      addTrade(formData);
+      addTrade(numData);
     } else if (trade) {
-      updateTrade(trade.id, formData);
+      updateTrade(trade.id, numData);
     }
-    
+
     onClose();
   };
+
+  const plValue = parseFloat(formData.profitLoss);
+  const plClass = plValue > 0 ? 'border-success-500' : plValue < 0 ? 'border-danger-500' : '';
 
   return (
     <Modal
@@ -147,8 +191,8 @@ export const TradeForm: React.FC<TradeFormProps> = ({
                 type="number"
                 step="0.01"
                 value={formData.lotSize}
-                onChange={(e) => updateField('lotSize', parseFloat(e.target.value) || 0)}
-                required
+                onChange={(e) => updateField('lotSize', e.target.value)}
+                error={errors.lotSize}
               />
               <Button
                 type="button"
@@ -169,29 +213,30 @@ export const TradeForm: React.FC<TradeFormProps> = ({
             label="سعر الدخول"
             type="number"
             step="any"
-            value={formData.entryPrice || ''}
-            onChange={(e) => updateField('entryPrice', parseFloat(e.target.value) || 0)}
+            value={formData.entryPrice}
+            onChange={(e) => updateField('entryPrice', e.target.value)}
+            error={errors.entryPrice}
           />
           <Input
             label="سعر الخروج"
             type="number"
             step="any"
-            value={formData.exitPrice || ''}
-            onChange={(e) => updateField('exitPrice', parseFloat(e.target.value) || 0)}
+            value={formData.exitPrice}
+            onChange={(e) => updateField('exitPrice', e.target.value)}
           />
           <Input
             label="وقف الخسارة"
             type="number"
             step="any"
-            value={formData.stopLoss || ''}
-            onChange={(e) => updateField('stopLoss', parseFloat(e.target.value) || 0)}
+            value={formData.stopLoss}
+            onChange={(e) => updateField('stopLoss', e.target.value)}
           />
           <Input
             label="جني الأرباح"
             type="number"
             step="any"
-            value={formData.takeProfit || ''}
-            onChange={(e) => updateField('takeProfit', parseFloat(e.target.value) || 0)}
+            value={formData.takeProfit}
+            onChange={(e) => updateField('takeProfit', e.target.value)}
           />
         </div>
 
@@ -200,7 +245,7 @@ export const TradeForm: React.FC<TradeFormProps> = ({
           <Select
             label="نتيجة الصفقة"
             value={formData.result}
-            onChange={(e) => updateField('result', e.target.value as TradeResult)}
+            onChange={(e) => updateField('result', e.target.value)}
             options={[
               { value: 'win', label: 'رابحة' },
               { value: 'loss', label: 'خاسرة' },
@@ -216,9 +261,9 @@ export const TradeForm: React.FC<TradeFormProps> = ({
               type="number"
               step="any"
               value={formData.profitLoss}
-              onChange={(e) => updateField('profitLoss', parseFloat(e.target.value) || 0)}
-              className={formData.profitLoss > 0 ? 'border-success-500' : formData.profitLoss < 0 ? 'border-danger-500' : ''}
-              required
+              onChange={(e) => updateField('profitLoss', e.target.value)}
+              error={errors.profitLoss}
+              className={plClass}
             />
           </div>
           <div className="space-y-1">
@@ -230,7 +275,7 @@ export const TradeForm: React.FC<TradeFormProps> = ({
                 type="number"
                 step="any"
                 value={formData.pips}
-                onChange={(e) => updateField('pips', parseFloat(e.target.value) || 0)}
+                onChange={(e) => updateField('pips', e.target.value)}
               />
               <Button
                 type="button"
@@ -250,14 +295,14 @@ export const TradeForm: React.FC<TradeFormProps> = ({
             label="الرسوم"
             type="number"
             step="any"
-            value={formData.fees || ''}
-            onChange={(e) => updateField('fees', parseFloat(e.target.value) || 0)}
+            value={formData.fees}
+            onChange={(e) => updateField('fees', e.target.value)}
           />
           <Input
             label="مدة الصفقة (دقائق)"
             type="number"
-            value={formData.duration || ''}
-            onChange={(e) => updateField('duration', parseInt(e.target.value) || 0)}
+            value={formData.duration}
+            onChange={(e) => updateField('duration', e.target.value)}
           />
         </div>
 
@@ -298,25 +343,25 @@ export const TradeForm: React.FC<TradeFormProps> = ({
             label="رأس المال"
             type="number"
             value={lotCalcCapital}
-            onChange={(e) => setLotCalcCapital(parseFloat(e.target.value) || 0)}
+            onChange={(e) => setLotCalcCapital(e.target.value)}
           />
           <Input
             label="نسبة المخاطرة (%)"
             type="number"
             value={lotCalcRisk}
-            onChange={(e) => setLotCalcRisk(parseFloat(e.target.value) || 0)}
+            onChange={(e) => setLotCalcRisk(e.target.value)}
           />
           <Input
             label="نقاط وقف الخسارة"
             type="number"
             value={lotCalcSL}
-            onChange={(e) => setLotCalcSL(parseFloat(e.target.value) || 0)}
+            onChange={(e) => setLotCalcSL(e.target.value)}
           />
           <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">اللوت المقترح</p>
             <p className="text-2xl font-bold text-primary-600">
               {lotCalcCapital && lotCalcRisk && lotCalcSL
-                ? calculateLotSize(lotCalcCapital, lotCalcRisk, lotCalcSL)
+                ? calculateLotSize(parseFloat(lotCalcCapital), parseFloat(lotCalcRisk), parseFloat(lotCalcSL))
                 : '0.00'}
             </p>
           </div>

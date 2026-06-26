@@ -16,8 +16,8 @@ export const formatGregorianDate = (dateStr: string): string => {
 };
 
 export const getWeekRange = (date: Date) => ({
-  start: startOfWeek(date, { weekStartsOn: 0 }),
-  end: endOfWeek(date, { weekStartsOn: 0 }),
+  start: startOfWeek(date, { weekStartsOn: 1 }), // Monday
+  end: endOfWeek(date, { weekStartsOn: 1 }), // Saturday (end of week = Sunday 00:00, so Saturday is last day)
 });
 
 export const getMonthRange = (date: Date) => ({
@@ -346,8 +346,8 @@ export const checkWeeklyLossLimit = (
   maxWeeklyLossPercent: number
 ): { exceeded: boolean; currentLoss: number; limit: number } => {
   const now = new Date();
-  const weekStart = startOfWeek(now, { weekStartsOn: 0 });
-  const weekEnd = endOfWeek(now, { weekStartsOn: 0 });
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 }); // Monday
+  const weekEnd = endOfWeek(now, { weekStartsOn: 1 }); // Sunday (so Saturday included)
 
   const weekTrades = trades.filter(t => {
     const tradeDate = parseISO(t.date);
